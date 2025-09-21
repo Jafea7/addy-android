@@ -1,8 +1,11 @@
 package host.stjin.anonaddy.ui.appsettings
 
 import android.Manifest
+import android.app.Activity
 import android.app.ActivityManager
+import android.app.KeyguardManager
 import android.app.NotificationManager
+import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
@@ -40,25 +43,22 @@ import host.stjin.anonaddy_shared.utils.LoggingHelper
 import kotlinx.coroutines.launch
 import androidx.core.net.toUri
 
-
 class AppSettingsActivity : BaseActivity(),
     UIUXInterfaceBottomDialogFragment.AddUIUXInterfaceBottomDialogListener,
     BackgroundServiceIntervalBottomDialogFragment.AddBackgroundServiceIntervalBottomDialogListener {
 
     private val addUIUXInterfaceBottomDialogFragment: UIUXInterfaceBottomDialogFragment =
         UIUXInterfaceBottomDialogFragment.newInstance()
-
     private var addBackgroundServiceIntervalBottomDialogFragment: BackgroundServiceIntervalBottomDialogFragment =
         BackgroundServiceIntervalBottomDialogFragment.newInstance()
-
     private val deleteAccountConfirmationBottomSheetDialog: DeleteAccountConfirmationBottomSheetDialog =
         DeleteAccountConfirmationBottomSheetDialog.newInstance()
 
     private lateinit var settingsManager: SettingsManager
     private lateinit var encryptedSettingsManager: SettingsManager
     private var forceSwitch = false
-
     private lateinit var binding: ActivityAppSettingsBinding
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityAppSettingsBinding.inflate(layoutInflater)
@@ -68,6 +68,7 @@ class AppSettingsActivity : BaseActivity(),
 
         settingsManager = SettingsManager(false, this)
         encryptedSettingsManager = SettingsManager(true, this)
+
         setupToolbar(
             R.string.settings,
             binding.activityAppSettingsNSV,
@@ -80,9 +81,7 @@ class AppSettingsActivity : BaseActivity(),
         setOnClickListeners()
         setOnSwitchListeners()
         setOnBiometricSwitchListeners()
-
         checkForVariant()
-
         checkForUpdates()
         checkPermissions()
     }
@@ -93,11 +92,8 @@ class AppSettingsActivity : BaseActivity(),
         }
     }
 
-
     private fun checkPermissions() {
         val notificationManager = this.getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-
-        // Notification permission check
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && !notificationManager.areNotificationsEnabled()) {
             binding.activityAppSettingsSectionNotificationPermission.visibility = View.VISIBLE
         } else {
@@ -112,7 +108,9 @@ class AppSettingsActivity : BaseActivity(),
                 Updater.isUpdateAvailable({ updateAvailable: Boolean, _: String?, _: Boolean, _: String? ->
                     binding.activityAppSettingsSectionUpdater.setSectionAlert(updateAvailable)
                     if (updateAvailable) {
-                        binding.activityAppSettingsSectionUpdater.setTitle(this@AppSettingsActivity.resources.getString(R.string.new_update_available))
+                        binding.activityAppSettingsSectionUpdater.setTitle(
+                            this@AppSettingsActivity.resources.getString(R.string.new_update_available)
+                        )
                     }
                 }, this@AppSettingsActivity)
             }
@@ -120,133 +118,146 @@ class AppSettingsActivity : BaseActivity(),
     }
 
     private fun loadSettings() {
-        binding.activityAppSettingsSectionSecurity.setSwitchChecked(encryptedSettingsManager.getSettingsBool(SettingsManager.PREFS.BIOMETRIC_ENABLED))
-        binding.activityAppSettingsSectionLogs.setSwitchChecked(settingsManager.getSettingsBool(SettingsManager.PREFS.STORE_LOGS))
-        binding.activityAppSettingsSectionPrivacy.setSwitchChecked(encryptedSettingsManager.getSettingsBool(SettingsManager.PREFS.PRIVACY_MODE))
+        binding.activityAppSettingsSectionSecurity.setSwitchChecked(
+            encryptedSettingsManager.getSettingsBool(SettingsManager.PREFS.BIOMETRIC_ENABLED)
+        )
+        binding.activityAppSettingsSectionLogs.setSwitchChecked(
+            settingsManager.getSettingsBool(SettingsManager.PREFS.STORE_LOGS)
+        )
+        binding.activityAppSettingsSectionPrivacy.setSwitchChecked(
+            encryptedSettingsManager.getSettingsBool(SettingsManager.PREFS.PRIVACY_MODE)
+        )
     }
 
     private fun setOnSwitchListeners() {
-        binding.activityAppSettingsSectionLogs.setOnSwitchCheckedChangedListener(object : SectionView.OnSwitchCheckedChangedListener {
-            override fun onCheckedChange(compoundButton: CompoundButton, checked: Boolean) {
-                if (compoundButton.isPressed) {
-                    settingsManager.putSettingsBool(SettingsManager.PREFS.STORE_LOGS, checked)
-                }
-            }
-        })
-        binding.activityAppSettingsSectionPrivacy.setOnSwitchCheckedChangedListener(object : SectionView.OnSwitchCheckedChangedListener {
-            override fun onCheckedChange(compoundButton: CompoundButton, checked: Boolean) {
-                if (compoundButton.isPressed || forceSwitch) {
-                    encryptedSettingsManager.putSettingsBool(SettingsManager.PREFS.PRIVACY_MODE, checked)
-
-                    if (checked) {
-                        // If privacy mode enabled, remove all shortcuts
-                        ShortcutManagerCompat.removeAllDynamicShortcuts(this@AppSettingsActivity)
+        binding.activityAppSettingsSectionLogs.setOnSwitchCheckedChangedListener(
+            object : SectionView.OnSwitchCheckedChangedListener {
+                override fun onCheckedChange(compoundButton: CompoundButton, checked: Boolean) {
+                    if (compoundButton.isPressed) {
+                        settingsManager.putSettingsBool(SettingsManager.PREFS.STORE_LOGS, checked)
                     }
-
-                    // Schedule the background worker to update widgets (this will cancel if already scheduled)
-                    BackgroundWorkerHelper(this@AppSettingsActivity).scheduleBackgroundWorker()
-
                 }
             }
-        })
+        )
+
+        binding.activityAppSettingsSectionPrivacy.setOnSwitchCheckedChangedListener(
+            object : SectionView.OnSwitchCheckedChangedListener {
+                override fun onCheckedChange(compoundButton: CompoundButton, checked: Boolean) {
+                    if (compoundButton.isPressed || forceSwitch) {
+                        forceSwitch = false
+                        encryptedSettingsManager.putSettingsBool(SettingsManager.PREFS.PRIVACY_MODE, checked)
+                        if (checked) {
+                            ShortcutManagerCompat.removeAllDynamicShortcuts(this@AppSettingsActivity)
+                        }
+                        BackgroundWorkerHelper(this@AppSettingsActivity).scheduleBackgroundWorker()
+                    }
+                }
+            }
+        )
     }
 
-    // If the user comes back from eg. settings re-check + enable biometricswitch
     override fun onResume() {
         super.onResume()
         setOnBiometricSwitchListeners()
-        checkPermissions() // When the user allows permissions through the system settings app, this value needs to be updated when coming back
+        checkPermissions()
         loadSettings()
     }
 
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        
+        // Let BaseActivity handle device credential results first (for the new isAuthenticated() flow)
+        // If BaseActivity doesn't handle it, the original logic will run below
+        
+        // Original logic for enabling security (still works as fallback)
+        if (requestCode == DEVICE_CREDENTIAL_REQUEST_CODE) {
+            if (resultCode == Activity.RESULT_OK) {
+                // User authenticated successfully
+                binding.activityAppSettingsSectionSecurity.setSwitchChecked(true)
+                encryptedSettingsManager.putSettingsBool(
+                    SettingsManager.PREFS.BIOMETRIC_ENABLED,
+                    true
+                )
+            } else {
+                // Authentication failed / cancelled
+                binding.activityAppSettingsSectionSecurity.setSwitchChecked(false)
+            }
+        }
+    }
 
     private var shouldEnableBiometric = true
+
     private fun setOnBiometricSwitchListeners() {
         binding.activityAppSettingsSectionSecurity.setLayoutEnabled(false)
 
+        val keyguardManager = getSystemService(KEYGUARD_SERVICE) as KeyguardManager
+        val isDeviceSecure = keyguardManager.isDeviceSecure
+
+        // If the device supports BiometricManager
         val biometricManager = BiometricManager.from(this)
-        when (biometricManager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.BIOMETRIC_WEAK or BiometricManager.Authenticators.DEVICE_CREDENTIAL)) {
-            BiometricManager.BIOMETRIC_SUCCESS -> {
-                binding.activityAppSettingsSectionSecurity.setDescription(resources.getString(R.string.security_desc))
 
-                binding.activityAppSettingsSectionSecurity.setLayoutEnabled(true)
-
-
-                binding.activityAppSettingsSectionSecurity.setOnLayoutClickedListener(object : SectionView.OnLayoutClickedListener {
-                    override fun onClick() {
-                        forceSwitch = true
-                        binding.activityAppSettingsSectionSecurity.setSwitchChecked(!binding.activityAppSettingsSectionSecurity.getSwitchChecked())
-                    }
-                })
-            }
-
-            BiometricManager.BIOMETRIC_ERROR_NO_HARDWARE ->
-                binding.activityAppSettingsSectionSecurity.setDescription(
-                    resources.getString(R.string.biometric_error_no_hardware)
-                )
-            BiometricManager.BIOMETRIC_ERROR_HW_UNAVAILABLE ->
-                binding.activityAppSettingsSectionSecurity.setDescription(
-                    resources.getString(R.string.biometric_error_hw_unavailable)
-                )
-            BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED -> {
-
-                binding.activityAppSettingsSectionSecurity.setDescription(
-                    resources.getString(R.string.biometric_error_none_enrolled)
-                )
-
-                if (encryptedSettingsManager.getSettingsBool(SettingsManager.PREFS.BIOMETRIC_ENABLED)) {
-                    // Biometrics is enabled but there is nothing enrolled.
-                    encryptedSettingsManager.putSettingsBool(
-                        SettingsManager.PREFS.BIOMETRIC_ENABLED,
-                        false
-                    )
-                    SnackbarHelper.createSnackbar(
-                        this,
-                        this.resources.getString(R.string.biometric_error_hw_unavailable),
-                        binding.activityAppSettingsCL
-                    ).show()
-                    loadSettings()
+        // Determine what description to show
+        val securityDescription = when {
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R -> {
+                when (biometricManager.canAuthenticate(
+                    BiometricManager.Authenticators.BIOMETRIC_STRONG or
+                            BiometricManager.Authenticators.BIOMETRIC_WEAK or
+                            BiometricManager.Authenticators.DEVICE_CREDENTIAL
+                )) {
+                    BiometricManager.BIOMETRIC_SUCCESS -> getString(R.string.security_desc)
+                    BiometricManager.BIOMETRIC_ERROR_NO_HARDWARE,
+                    BiometricManager.BIOMETRIC_ERROR_HW_UNAVAILABLE,
+                    BiometricManager.BIOMETRIC_ERROR_UNSUPPORTED,
+                    BiometricManager.BIOMETRIC_STATUS_UNKNOWN -> getString(R.string.biometric_error_hw_unavailable)
+                    BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED -> getString(R.string.biometric_error_none_enrolled)
+                    BiometricManager.BIOMETRIC_ERROR_SECURITY_UPDATE_REQUIRED -> getString(R.string.biometric_error_hw_unavailable)
+                    else -> getString(R.string.biometric_error_hw_unavailable)
                 }
             }
-            BiometricManager.BIOMETRIC_ERROR_SECURITY_UPDATE_REQUIRED -> {
-                binding.activityAppSettingsSectionSecurity.setDescription(
-                    resources.getString(R.string.biometric_error_hw_unavailable)
-                )
-            }
-            BiometricManager.BIOMETRIC_ERROR_UNSUPPORTED -> {
-                binding.activityAppSettingsSectionSecurity.setDescription(
-                    resources.getString(R.string.biometric_error_hw_unavailable)
-                )
-            }
-            BiometricManager.BIOMETRIC_STATUS_UNKNOWN -> {
-                binding.activityAppSettingsSectionSecurity.setDescription(
-                    resources.getString(R.string.biometric_error_hw_unavailable)
-                )
+            else -> { // Android 10 and lower
+                if (isDeviceSecure) getString(R.string.security_desc_device_credential_only)
+                else getString(R.string.biometric_error_hw_unavailable)
             }
         }
+
+        binding.activityAppSettingsSectionSecurity.setDescription(securityDescription)
+
+        // Enable layout only if device supports some secure authentication
+        binding.activityAppSettingsSectionSecurity.setLayoutEnabled(isDeviceSecure ||
+                (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
+                        biometricManager.canAuthenticate(
+                            BiometricManager.Authenticators.BIOMETRIC_STRONG or
+                                    BiometricManager.Authenticators.BIOMETRIC_WEAK or
+                                    BiometricManager.Authenticators.DEVICE_CREDENTIAL
+                        ) == BiometricManager.BIOMETRIC_SUCCESS)
+        )
+
+        // Click listener to toggle the switch
+        binding.activityAppSettingsSectionSecurity.setOnLayoutClickedListener(
+            object : SectionView.OnLayoutClickedListener {
+                override fun onClick() {
+                    forceSwitch = true
+                    binding.activityAppSettingsSectionSecurity.setSwitchChecked(
+                        !binding.activityAppSettingsSectionSecurity.getSwitchChecked()
+                    )
+                }
+            }
+        )
 
         val executor = ContextCompat.getMainExecutor(this)
         val biometricPrompt = BiometricPrompt(this, executor,
             object : BiometricPrompt.AuthenticationCallback() {
-                override fun onAuthenticationError(
-                    errorCode: Int,
-                    errString: CharSequence
-                ) {
+                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
                     super.onAuthenticationError(errorCode, errString)
-
                     SnackbarHelper.createSnackbar(
-                        this@AppSettingsActivity, this@AppSettingsActivity.resources.getString(
-                            R.string.authentication_error_s,
-                            errString
-                        ), binding.activityAppSettingsCL
+                        this@AppSettingsActivity,
+                        getString(R.string.authentication_error_s, errString),
+                        binding.activityAppSettingsCL
                     ).show()
-
                     binding.activityAppSettingsSectionSecurity.setSwitchChecked(!shouldEnableBiometric)
                 }
 
-                override fun onAuthenticationSucceeded(
-                    result: BiometricPrompt.AuthenticationResult
-                ) {
+                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                     super.onAuthenticationSucceeded(result)
                     binding.activityAppSettingsSectionSecurity.setSwitchChecked(shouldEnableBiometric)
                     encryptedSettingsManager.putSettingsBool(
@@ -259,36 +270,60 @@ class AppSettingsActivity : BaseActivity(),
                     super.onAuthenticationFailed()
                     SnackbarHelper.createSnackbar(
                         this@AppSettingsActivity,
-                        resources.getString(R.string.authentication_failed),
+                        getString(R.string.authentication_failed),
                         binding.activityAppSettingsCL
                     ).show()
                     binding.activityAppSettingsSectionSecurity.setSwitchChecked(!shouldEnableBiometric)
                 }
             })
 
+        // Switch listener
+        // In setOnBiometricSwitchListeners(), replace the switch listener with:
+        binding.activityAppSettingsSectionSecurity.setOnSwitchCheckedChangedListener(
+            object : SectionView.OnSwitchCheckedChangedListener {
+                override fun onCheckedChange(compoundButton: CompoundButton, checked: Boolean) {
+                    if (compoundButton.isPressed || forceSwitch) {
+                        forceSwitch = false
+                        shouldEnableBiometric = checked
 
-        binding.activityAppSettingsSectionSecurity.setOnSwitchCheckedChangedListener(object : SectionView.OnSwitchCheckedChangedListener {
-            override fun onCheckedChange(compoundButton: CompoundButton, checked: Boolean) {
-                // Using forceswitch can toggle onCheckedChangeListener programmatically without having to press the actual switch
-                if (compoundButton.isPressed || forceSwitch) {
-                    forceSwitch = false
-                    shouldEnableBiometric = checked
-                    val promptInfo = if (checked) {
-                        BiometricPrompt.PromptInfo.Builder()
-                            .setTitle(resources.getString(R.string.enable_biometric_authentication))
-                            .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.BIOMETRIC_WEAK or BiometricManager.Authenticators.DEVICE_CREDENTIAL)
-                            .build()
-                    } else {
-                        BiometricPrompt.PromptInfo.Builder()
-                            .setTitle(resources.getString(R.string.disable_biometric_authentication))
-                            .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.BIOMETRIC_WEAK or BiometricManager.Authenticators.DEVICE_CREDENTIAL)
-                            .build()
+                        if (!checked) {
+                            // Disable security
+                            encryptedSettingsManager.putSettingsBool(
+                                SettingsManager.PREFS.BIOMETRIC_ENABLED,
+                                false
+                            )
+                            return
+                        }
+
+                        // Enable security - use the new BaseActivity method
+                        isAuthenticated(
+                            shouldFinishOnError = false, // Don't finish activity on error
+                            callback = { isAuthenticated ->
+                                if (isAuthenticated) {
+                                    binding.activityAppSettingsSectionSecurity.setSwitchChecked(true)
+                                    encryptedSettingsManager.putSettingsBool(
+                                        SettingsManager.PREFS.BIOMETRIC_ENABLED,
+                                        true
+                                    )
+                                } else {
+                                    // Authentication failed, switch back to false
+                                    binding.activityAppSettingsSectionSecurity.setSwitchChecked(false)
+                                    SnackbarHelper.createSnackbar(
+                                        this@AppSettingsActivity,
+                                        getString(R.string.authentication_failed),
+                                        binding.activityAppSettingsCL
+                                    ).show()
+                                }
+                            }
+                        )
                     }
-
-                    biometricPrompt.authenticate(promptInfo)
                 }
             }
-        })
+        )
+    }
+
+    companion object {
+        private const val DEVICE_CREDENTIAL_REQUEST_CODE = 101
     }
 
     private fun setOnClickListeners() {

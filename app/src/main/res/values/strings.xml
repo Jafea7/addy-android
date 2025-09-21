@@ -41,6 +41,9 @@
     <string name="delete">Delete</string>
     <string name="recipients_list_description" tools:ignore="PluralsCandidate">%1$d aliases</string>
     <string name="encryption_enabled">Encryption enabled</string>
+    <string name="app_authentication_description">Please authenticate to access the app</string>
+    <string name="security_desc_device_credential_only">App protected by device PIN/pattern</string>
+    <string name="security_requires_device_lock">Please set up a device PIN, pattern, or biometric authentication in Settings to enable app security.</string>
     <string name="open_options">Open options</string>
     <string name="api_obtain_desc">Your API can be obtained at the settings page at app.addy.io (or your own hosted instance)</string>
     <string name="all_recipients">All recipients</string>

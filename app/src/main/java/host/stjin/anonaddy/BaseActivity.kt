@@ -3,6 +3,7 @@ package host.stjin.anonaddy
 import android.animation.ObjectAnimator
 import android.annotation.SuppressLint
 import android.app.ActivityManager
+import android.app.KeyguardManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -28,16 +29,15 @@ import host.stjin.anonaddy_shared.managers.SettingsManager
 import host.stjin.anonaddy_shared.models.LOGIMPORTANCE
 import host.stjin.anonaddy_shared.utils.LoggingHelper
 
-
 abstract class BaseActivity : AppCompatActivity() {
-
 
     companion object SecurityStatus {
         // This variable becomes true when the user authenticates. It will only switch back to false whenever the app is closed.
         // That way all the protected parts of the app stay available until the user explicitly closed them.
         var isSessionAuthenticated = false
+        
+        private const val DEVICE_CREDENTIAL_REQUEST_CODE = 101
     }
-
 
     /**
      * Oh, the screen stretches far, to the edge it does reach,
@@ -53,11 +53,9 @@ abstract class BaseActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
     }
 
-
     /*
     This method forces the use of dark/light/auto mode
      */
-
     @SuppressLint("SwitchIntDef")
     fun checkForDarkModeAndSetFlags() {
         val settingsManager = SettingsManager(false, this)
@@ -74,7 +72,6 @@ abstract class BaseActivity : AppCompatActivity() {
         }
     }
 
-
     // This logic is for the refreshlayout, when the home, alias or recipient fragment is scrolled they will fire the setHasReachedTopOfNsv() method
     // in their respective classes. That method will set this value, the setter then checks if the appbar is expanded and will set that result in the
     // RefreshLayout. If the value is true it means that the top of the shown fragment is reached as well as the appbar expanded. Continuing to scroll
@@ -88,7 +85,6 @@ abstract class BaseActivity : AppCompatActivity() {
                 this.refreshLayout!!.shouldShowRefreshLayoutOnScroll = value && appBarIsExpanded
             }
         }
-
 
     // This value holds the status if the app bar is expanded or not, used for the refreshlayouts
     private var appBarIsExpanded: Boolean = true
@@ -115,7 +111,6 @@ abstract class BaseActivity : AppCompatActivity() {
     }
 
     fun changeTopBarSubTitle(subtitle: TextView, title: TextView, text: String?) {
-
         // Prevent lagging animation by not setting text multiple times
         if (subtitle.text == text || subtitle.text.isNullOrEmpty() && text == null) {
             return
@@ -161,7 +156,6 @@ abstract class BaseActivity : AppCompatActivity() {
         customBackPressedMethod: (() -> Unit)? = null,
         showBackButton: Boolean = true
     ) {
-
         if (showBackButton) {
             customToolbarOneHandedBinding?.customToolbarOneHandedMaterialtoolbar?.setNavigationIcon(R.drawable.ic_arrow_back) // need to set the icon here to have a navigation icon. You can simple create an vector image by "Vector Asset" and using here
         }
@@ -183,8 +177,6 @@ abstract class BaseActivity : AppCompatActivity() {
             val intent = Intent("scroll_up")
             sendBroadcast(intent)
         }
-
-
 
         this.nestedScrollView = nestedScrollView
         this.appBarLayout = customToolbarOneHandedBinding?.customToolbarAppbar
@@ -225,84 +217,35 @@ abstract class BaseActivity : AppCompatActivity() {
         }
     }
 
+    // Handle device credential authentication results
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        
+        // Handle device credential authentication
+        pendingAuthCallbacks?.let { (onSuccess, onError) ->
+            if (requestCode == DEVICE_CREDENTIAL_REQUEST_CODE) {
+                when (resultCode) {
+                    RESULT_OK -> onSuccess()
+                    else -> onError("Device credential authentication failed")
+                }
+                pendingAuthCallbacks = null
+                return
+            }
+        }
+        
+        // Let subclasses handle other results if needed
+    }
 
     /*
     This method is getting called in multiple places to check if the user is Authenticated to use the app.
-    It only gived a callback when the user is authenticated
+    It only gives a callback when the user is authenticated
      */
     fun isAuthenticated(shouldFinishOnError: Boolean = true, callback: (Boolean) -> Unit) {
         val encryptedSettingsManager = SettingsManager(true, this)
         if (encryptedSettingsManager.getSettingsBool(SettingsManager.PREFS.BIOMETRIC_ENABLED)) {
             if (!isSessionAuthenticated) {
-                val executor = ContextCompat.getMainExecutor(this)
-                val biometricPrompt = BiometricPrompt(
-                    this, executor,
-                    object : BiometricPrompt.AuthenticationCallback() {
-                        override fun onAuthenticationError(
-                            errorCode: Int,
-                            errString: CharSequence
-                        ) {
-                            super.onAuthenticationError(errorCode, errString)
-                            LoggingHelper(this@BaseActivity).addLog(LOGIMPORTANCE.WARNING.int, "$errorCode $errString", "isAuthenticated", null)
-
-                            when (errorCode) {
-                                BiometricPrompt.ERROR_NO_BIOMETRICS -> {
-                                    MaterialDialogHelper.showMaterialDialog(
-                                        context = this@BaseActivity,
-                                        message = this@BaseActivity.resources.getString(R.string.authentication_splash_error_unavailable),
-                                        icon = R.drawable.ic_fingerprint,
-                                        neutralButtonText = this@BaseActivity.resources.getString(R.string.try_again),
-                                        neutralButtonAction = {
-                                             isAuthenticated(shouldFinishOnError, callback)
-                                        },
-                                        positiveButtonText = this@BaseActivity.resources.getString(R.string.reset_app),
-                                        positiveButtonAction = {
-                                            (getSystemService(ACTIVITY_SERVICE) as ActivityManager).clearApplicationUserData()
-                                        }
-                                    ).setCancelable(false).show()
-                                }
-                                BiometricPrompt.ERROR_USER_CANCELED -> {
-                                    if (shouldFinishOnError) {
-                                        finish()
-                                    }
-                                }
-                                BiometricPrompt.ERROR_CANCELED -> {
-                                    if (shouldFinishOnError) {
-                                        finish()
-                                    }
-                                }
-                                else -> {
-                                    Toast.makeText(
-                                        this@BaseActivity, resources.getString(
-                                            R.string.authentication_error_s,
-                                            errString
-                                        ), Toast.LENGTH_LONG
-                                    ).show()
-                                    if (shouldFinishOnError) {
-                                        finish()
-                                    }
-                                }
-                            }
-                        }
-
-                        override fun onAuthenticationSucceeded(
-                            result: BiometricPrompt.AuthenticationResult
-                        ) {
-                            super.onAuthenticationSucceeded(result)
-                            isSessionAuthenticated = true
-                            callback(true)
-                        }
-
-                    })
-
-                val promptInfo =
-                    BiometricPrompt.PromptInfo.Builder()
-                        .setTitle(resources.getString(R.string.addyio_locked))
-                        .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.BIOMETRIC_WEAK or BiometricManager.Authenticators.DEVICE_CREDENTIAL)
-                        .setConfirmationRequired(false)
-                        .build()
-
-                biometricPrompt.authenticate(promptInfo)
+                // Use fallback logic for Android 10 compatibility
+                authenticateWithFallback(shouldFinishOnError, callback)
             } else {
                 // Session was already authenticated.
                 callback(true)
@@ -311,7 +254,155 @@ abstract class BaseActivity : AppCompatActivity() {
             isSessionAuthenticated = true
             callback(true)
         }
-
     }
 
+    private fun authenticateWithFallback(shouldFinishOnError: Boolean, callback: (Boolean) -> Unit) {
+        val biometricManager = BiometricManager.from(this)
+        val keyguardManager = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+        val isDeviceSecure = keyguardManager.isDeviceSecure()
+        
+        when {
+            // Android 11+ - use BiometricPrompt with device credential fallback
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R -> {
+                val canAuthenticate = biometricManager.canAuthenticate(
+                    BiometricManager.Authenticators.BIOMETRIC_STRONG or
+                    BiometricManager.Authenticators.BIOMETRIC_WEAK or
+                    BiometricManager.Authenticators.DEVICE_CREDENTIAL
+                )
+                
+                if (canAuthenticate == BiometricManager.BIOMETRIC_SUCCESS) {
+                    showBiometricPrompt(callback)
+                } else {
+                    handleAuthError(getString(R.string.biometric_error_hw_unavailable), shouldFinishOnError)
+                }
+            }
+            // Android 10 and below - use device credentials if secure
+            isDeviceSecure -> {
+                showDeviceCredentialPrompt(shouldFinishOnError, callback)
+            }
+            // No security available - use helpful error message
+            else -> {
+                handleAuthError(getString(R.string.security_requires_device_lock), shouldFinishOnError)
+            }
+        }
+    }
+
+    private fun showBiometricPrompt(callback: (Boolean) -> Unit) {
+        val executor = ContextCompat.getMainExecutor(this)
+        val biometricPrompt = BiometricPrompt(
+            this, executor,
+            object : BiometricPrompt.AuthenticationCallback() {
+                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                    super.onAuthenticationError(errorCode, errString)
+                    LoggingHelper(this@BaseActivity).addLog(LOGIMPORTANCE.WARNING.int, "$errorCode $errString", "isAuthenticated", null)
+                    
+                    when (errorCode) {
+                        BiometricPrompt.ERROR_NO_BIOMETRICS -> {
+                            MaterialDialogHelper.showMaterialDialog(
+                                context = this@BaseActivity,
+                                message = this@BaseActivity.resources.getString(R.string.authentication_splash_error_unavailable),
+                                icon = R.drawable.ic_fingerprint,
+                                neutralButtonText = this@BaseActivity.resources.getString(R.string.try_again),
+                                neutralButtonAction = {
+                                    isAuthenticated(true, callback)
+                                },
+                                positiveButtonText = this@BaseActivity.resources.getString(R.string.reset_app),
+                                positiveButtonAction = {
+                                    (getSystemService(ACTIVITY_SERVICE) as ActivityManager).clearApplicationUserData()
+                                }
+                            ).setCancelable(false).show()
+                        }
+                        BiometricPrompt.ERROR_USER_CANCELED, BiometricPrompt.ERROR_CANCELED -> {
+                            if (true) { // shouldFinishOnError is always true for biometric errors
+                                finish()
+                            }
+                        }
+                        else -> {
+                            Toast.makeText(
+                                this@BaseActivity, resources.getString(
+                                    R.string.authentication_error_s,
+                                    errString
+                                ), Toast.LENGTH_LONG
+                            ).show()
+                            finish()
+                        }
+                    }
+                }
+
+                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                    super.onAuthenticationSucceeded(result)
+                    isSessionAuthenticated = true
+                    callback(true)
+                }
+
+                override fun onAuthenticationFailed() {
+                    super.onAuthenticationFailed()
+                    // For biometric failure, show the same error dialog as ERROR_NO_BIOMETRICS
+                    MaterialDialogHelper.showMaterialDialog(
+                        context = this@BaseActivity,
+                        message = this@BaseActivity.resources.getString(R.string.authentication_splash_error_unavailable),
+                        icon = R.drawable.ic_fingerprint,
+                        neutralButtonText = this@BaseActivity.resources.getString(R.string.try_again),
+                        neutralButtonAction = {
+                            isAuthenticated(true, callback)
+                        },
+                        positiveButtonText = this@BaseActivity.resources.getString(R.string.reset_app),
+                        positiveButtonAction = {
+                            (getSystemService(ACTIVITY_SERVICE) as ActivityManager).clearApplicationUserData()
+                        }
+                    ).setCancelable(false).show()
+                }
+            })
+
+        val promptInfo = BiometricPrompt.PromptInfo.Builder()
+            .setTitle(resources.getString(R.string.addyio_locked))
+            .setAllowedAuthenticators(
+                BiometricManager.Authenticators.BIOMETRIC_STRONG or
+                BiometricManager.Authenticators.BIOMETRIC_WEAK or
+                BiometricManager.Authenticators.DEVICE_CREDENTIAL
+            )
+            .setConfirmationRequired(false)
+            .build()
+
+        biometricPrompt.authenticate(promptInfo)
+    }
+
+    private fun showDeviceCredentialPrompt(shouldFinishOnError: Boolean, callback: (Boolean) -> Unit) {
+        val keyguardManager = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+        val intent = keyguardManager.createConfirmDeviceCredentialIntent(
+            resources.getString(R.string.addyio_locked),
+            resources.getString(R.string.app_authentication_description)
+        )
+        
+        if (intent != null) {
+            // Store the callback for onActivityResult handling
+            setPendingAuthCallbacks(
+                onSuccess = { 
+                    isSessionAuthenticated = true
+                    callback(true)
+                },
+                onError = { error ->
+                    LoggingHelper(this).addLog(LOGIMPORTANCE.WARNING.int, error, "isAuthenticated", null)
+                    handleAuthError(error, shouldFinishOnError)
+                }
+            )
+            startActivityForResult(intent, DEVICE_CREDENTIAL_REQUEST_CODE)
+        } else {
+            handleAuthError(getString(R.string.biometric_error_hw_unavailable), shouldFinishOnError)
+        }
+    }
+
+    private fun handleAuthError(errorMessage: String, shouldFinishOnError: Boolean) {
+        Toast.makeText(this, errorMessage, Toast.LENGTH_LONG).show()
+        if (shouldFinishOnError) {
+            finish()
+        }
+    }
+
+    // Properties and methods for device credential handling
+    private var pendingAuthCallbacks: Pair<() -> Unit, (String) -> Unit>? = null
+
+    private fun setPendingAuthCallbacks(onSuccess: () -> Unit, onError: (String) -> Unit) {
+        this.pendingAuthCallbacks = Pair(onSuccess, onError)
+    }
 }
